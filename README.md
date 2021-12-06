@@ -9,10 +9,14 @@ Currently, I'm training some GLOM configurations for different benchmarks.
 | Model | Dataset | Accuracy | 
 | - | - | - |
 | GLOM T/4 | MNIST | |
-| GLOM T/4 | CIFAR10 | |
-| GLOM T/4 | CIFAR100 | |
-| GLOM T/32 | ImageNet | |
 | GLOM S/4 | MNIST | |
+| GLOM B/4 | MNIST | |
+| GLOM T/4 | CIFAR10 | |
 | GLOM S/4 | CIFAR10 | |
+| GLOM B/4 | CIFAR10 | |
+| GLOM T/4 | CIFAR100 | |
 | GLOM S/4 | CIFAR100 | |
+| GLOM B/4 | CIFAR100 | |
+| GLOM T/32 | ImageNet | |
 | GLOM S/32 | ImageNet | |
+| GLOM B/32 | ImageNet | |
