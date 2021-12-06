@@ -3,7 +3,7 @@ from torchvision.datasets import MNIST, CIFAR10, CIFAR100, ImageFolder
 from torchvision import transforms as T
 from torch.utils.data import DataLoader
 
-__available__ = ['cifar10', 'cifar100', 'imagenet']
+__available__ = ['mnist', 'cifar10', 'cifar100', 'imagenet']
 
 NORMALIZATION = {
     'imagenet': [(0.485, 0.456, 0.406), (0.229, 0.224, 0.225)],
@@ -29,6 +29,10 @@ def get_datasets(args):
     if args.dataset == 'mnist':
         ds_train = MNIST(train=True, transforms=T.ToTensor(), **ds_kwargs)
         ds_val = MNIST(train=False, transforms=T.ToTensor(), **ds_kwargs)
+        ds_info = {
+            'in_channels': 1,
+            'img_size': 28,
+        }
 
     elif args.dataset == 'cifar10':
         normalize = T.Normalize(mean=mu, std=std)
