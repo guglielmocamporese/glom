@@ -154,17 +154,47 @@ class GlomLayer(nn.Module):
         z = torch.stack(z, 2) # [B, N, NL, DL]
         return z
 
+class Glom(nn.Module):
+    """
+    Glom Backbone.
+    """
+    def __init__(self, img_size=224, patch_size=16, in_chans=3, n_layers=3, n_levels=5, feat_dim=1280, use_pos_emb=False):
+        super().__init__()
+        assert feat_dim % n_levels == 0, 'Features dimension must be divisible by number of levels!'
+        self.n_levels = n_levels
+        self.feat_dim = feat_dim
+        self.use_pos_emb = use_pos_emb
+        self.feat_dim_per_level = self.feat_dim // self.n_levels
+        self.patch_embed = PatchEmbed(img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=feat_dim)
+        self.pos_lev_emb = nn.Parameter(torch.randn(n_levels, self.feat_dim_per_level))
+        self.layers = nn.ModuleList([GlomLayer(n_levels=n_levels, feat_dim=self.feat_dim_per_level) for _ in range(n_layers)])
+        if self.use_pos_emb:
+            self.clf_token = nn.Parameter(torch.randn(1, self.feat_dim))
+
+    def forward(self, x):
+        """
+        Inputs:
+            x: tensor of shape [B, C, H, W]
+        Outputs:
+            x: tensor of shape [B, N, NL, DL]
+        """
+        _, C, H, W = x.shape
+        x = self.patch_embed(x) # [B, N, D]
+        B, N, D = x.shape
+        if self.use_pos_emb:
+            x = torch.cat([self.clf_token.unsqueeze(0).repeat(B, 1, 1), x], 1) # [B, N + 1, D]
+        x = x.reshape(B, N, self.n_levels, self.feat_dim_per_level) # [B, N, NL, DL]
+        for layer in self.layers:
+            x = layer(x, self.pos_lev_emb)
+        return x # [B, N, NL, DL]
+
 
 class GlomReconstruction(pl.LightningModule):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, n_layers=3, n_levels=5, feat_dim=1280):
         super().__init__()
         assert feat_dim % n_levels == 0, 'Features dimension must be divisible by number of levels!'
-        self.n_levels = n_levels
-        self.feat_dim = feat_dim
-        self.feat_dim_per_level = self.feat_dim // self.n_levels
-        self.patch_embed = PatchEmbed(img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=feat_dim)
-        self.pos_lev_emb = nn.Parameter(torch.randn(n_levels, self.feat_dim_per_level))
-        self.layers = nn.ModuleList([GlomLayer(n_levels=n_levels, feat_dim=self.feat_dim_per_level) for _ in range(n_layers)])
+        self.backbone = Glom(img_size=img_size, patch_size=patch_size, in_chans=in_chans, n_layers=n_layers, 
+                             n_levels=n_levels, feat_dim=feat_dim, use_pos_emb=False)
         self.rec_head = nn.Linear(self.feat_dim, in_chans * (patch_size ** 2))
 
     def forward(self, x):
@@ -175,15 +205,11 @@ class GlomReconstruction(pl.LightningModule):
             x: tensor of shape [B, N, NL, DL]
         """
         _, C, H, W = x.shape
-        x = self.patch_embed(x) # [B, N, D]
+        PS = self.backbone.patch_embed.patch_size # patch_size
+        x = self.backbone(x) # [B, N, NL, DL]
+        x = x.reshape(B, N, self.backbone.feat_dim) # [B, N, D]
         B, N, D = x.shape
-        PS = self.patch_embed.patch_size # patch_size
-        x = x.reshape(B, N, self.n_levels, self.feat_dim_per_level) # [B, N, NL, DL]
-        for layer in self.layers:
-            x = layer(x, self.pos_lev_emb)
-        x = x.reshape(B, N, self.feat_dim) # [B, N, D]
         x = self.rec_head(x) # [B, N, C * PS * PS] 
-        
         x = x.reshape(B, N, C, PS[0], PS[0]).transpose(1, 2)
         x = patches2image_batch(x, (H, W))
         return x
@@ -191,29 +217,23 @@ class GlomReconstruction(pl.LightningModule):
     def configure_optimizers(self):
         return Adam(self.parameters(), lr=3e-4)
 
-    def training_step(self, batch, idx):
+    def training_step(self, batch, idx, mode='train'):
         x, y = batch
         x_ = self(x)
 
         loss = F.mse_loss(x_, x)
-        #self.log('loss', loss, prog_bar=True)
+        self.log(f'{mode}_loss', loss, prog_bar=True)
         return loss
 
     def validation_step(self, batch, idx):
-        return self.training_step(batch, idx)
+        return self.training_step(batch, idx, mode='val')
 
 
 class GlomClassification(pl.LightningModule):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, n_layers=3, n_levels=5, feat_dim=1280, num_classes=10):
         super().__init__()
-        assert feat_dim % n_levels == 0, 'Features dimension must be divisible by number of levels!'
-        self.n_levels = n_levels
-        self.feat_dim = feat_dim
-        self.feat_dim_per_level = self.feat_dim // self.n_levels
-        self.patch_embed = PatchEmbed(img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=feat_dim)
-        self.pos_lev_emb = nn.Parameter(torch.randn(n_levels, self.feat_dim_per_level))
-        self.layers = nn.ModuleList([GlomLayer(n_levels=n_levels, feat_dim=self.feat_dim_per_level) for _ in range(n_layers)])
-        self.clf_token = nn.Parameter(torch.randn(1, self.feat_dim))
+        self.backbone = Glom(img_size=img_size, patch_size=patch_size, in_chans=in_chans, n_layers=n_layers, 
+                             n_levels=n_levels, feat_dim=feat_dim, use_pos_emb=True)
         self.clf_head = nn.Linear(self.feat_dim, num_classes)
 
     def forward(self, x):
@@ -223,14 +243,9 @@ class GlomClassification(pl.LightningModule):
         Outputs:
             x: tensor of shape [B, N, NL, DL]
         """
-        _, C, H, W = x.shape
-        x = self.patch_embed(x) # [B, N, D]
-        B, N, D = x.shape
-        x = torch.cat([self.clf_token.unsqueeze(0).repeat(B, 1, 1), x], 1) # [B, N + 1, D]
-        PS = self.patch_embed.patch_size # patch_size
-        x = x.reshape(B, N + 1, self.n_levels, self.feat_dim_per_level) # [B, N + 1, NL, DL]
-        for layer in self.layers:
-            x = layer(x, self.pos_lev_emb)
+        B, C, H, W = x.shape
+        x = self.backbone(x) # [B, N + 1, NL, DL]
+        N = x.shape[1] - 1
         x = x.reshape(B, N + 1, self.feat_dim) # [B, N + 1, D]
         x = self.clf_head(x[:, 0]) # [B, N_CL]
         return x

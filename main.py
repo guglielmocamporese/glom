@@ -13,7 +13,8 @@ def main(args):
 
     # Model and trainer
     if args.task == 'classification': 
-        model = GlomClassification(img_size=ds_info['img_size'], patch_size=args.patch_size)
+        model = GlomClassification(img_size=ds_info['img_size'], patch_size=args.patch_size, 
+                                   num_classes=ds_info['num_classes'])
     elif args.task == 'reconstruction': 
         model = GlomReconstruction(img_size=ds_info['img_size'], patch_size=args.patch_size)
     else:

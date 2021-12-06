@@ -32,6 +32,7 @@ def get_datasets(args):
         ds_info = {
             'in_channels': 1,
             'img_size': 28,
+            'num_classes': 10,
         }
 
     elif args.dataset == 'cifar10':
@@ -51,6 +52,7 @@ def get_datasets(args):
         ds_info = {
             'in_channels': 3,
             'img_size': 32,
+            'num_classes': 10,
         }
 
     elif args.dataset == 'cifar100':
@@ -70,6 +72,7 @@ def get_datasets(args):
         ds_info = {
             'in_channels': 3,
             'img_size': 32,
+            'num_classes': 100,
         }
 
     elif args.dataset == 'imagenet':
@@ -91,6 +94,7 @@ def get_datasets(args):
         ds_info = {
             'in_channels': 3,
             'img_size': 224,
+            'num_classes': 1000,
         }
 
     else:
