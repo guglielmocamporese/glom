@@ -1,36 +1,35 @@
-from torchvision.datasets import CIFAR10
-from torchvision import transforms as T
-from torch.utils.data import DataLoader
+import sys
 import pytorch_lightning as pl
 
-from glom import Glom
+from glom import GlomReconstruction, GlomClassification
+from datasets import get_dataloaders
+import utils
 
 
-def main():
+def main(args):
 
     # Dataset and dataloader
-    normalize = T.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2470, 0.2435, 0.2616])
-    transform_train = T.Compose([
-        T.RandomResizedCrop(32),
-        T.ToTensor(),
-        normalize,
-    ])
-    transform_val = T.Compose([
-        T.ToTensor(),
-        normalize,
-    ])
-    ds_train = CIFAR10('./data', train=True, transform=transform_train, download=True)
-    ds_val = CIFAR10('./data', train=False, transform=transform_val, download=True)
-    dl_train = DataLoader(ds_train, shuffle=True, pin_memory=True, num_workers=12, batch_size=64)
-    dl_val = DataLoader(ds_val, pin_memory=True, num_workers=12, batch_size=64)
+    dl_dict, ds_info = get_dataloaders(args)
 
     # Model and trainer
-    model = Glom(img_size=32, patch_size=4)
-    trainer = pl.Trainer(max_epochs=5, gpus=1)
+    if args.task == 'classification': 
+        model = GlomClassification(img_size=ds_info['img_size'], patch_size=args.patch_size)
+    elif args.task == 'reconstruction': 
+        model = GlomReconstruction(img_size=ds_info['img_size'], patch_size=args.patch_size)
+    else:
+        raise Exception(f'Error. Task "{args.task}" is not supported.')
+
+    # Create trainer
+    trainer = pl.Trainer(max_epochs=args.epochs, gpus=args.gpus)
 
     # Fit
-    trainer.fit(model, train_dataloaders=dl_train, val_dataloaders=dl_val)
+    trainer.fit(model, train_dataloaders=dl_dict['train'], val_dataloaders=dl_dict['val'])
 
 
 if __name__ == '__main__':
-    main()
+
+    # Retrieve input args
+    args = utils.parse_args(sys.argv[1:])
+
+    # Run main
+    main(args)
