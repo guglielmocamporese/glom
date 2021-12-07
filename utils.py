@@ -18,6 +18,8 @@ def parse_args(stdin, verbose=True):
     parser.add_argument('--patch_size', type=int, default=4, help='Patch size.')
     parser.add_argument('--task', type=str, default='classification', help='The task to solve with the GLOM model.', 
                         choices=['classification', 'reconstruction'])
+    parser.add_argument('--model_size', type=str, default='small', help='Model size.', 
+                        choices=['tiny', 'small', 'base'])
     args = parser.parse_args()
 
     if verbose:

@@ -183,10 +183,10 @@ class Glom(nn.Module):
         B, N, D = x.shape
         if self.use_pos_emb:
             x = torch.cat([self.clf_token.unsqueeze(0).repeat(B, 1, 1), x], 1) # [B, N + 1, D]
-        x = x.reshape(B, N, self.n_levels, self.feat_dim_per_level) # [B, N, NL, DL]
+        x = x.reshape(B, -1, self.n_levels, self.feat_dim_per_level) # [B, N( + 1), NL, DL]
         for layer in self.layers:
             x = layer(x, self.pos_lev_emb)
-        return x # [B, N, NL, DL]
+        return x # [B, N( + 1), NL, DL]
 
 
 class GlomReconstruction(pl.LightningModule):
@@ -230,11 +230,10 @@ class GlomReconstruction(pl.LightningModule):
 
 
 class GlomClassification(pl.LightningModule):
-    def __init__(self, img_size=224, patch_size=16, in_chans=3, n_layers=3, n_levels=5, feat_dim=1280, num_classes=10):
+    def __init__(self, args, img_size=224, patch_size=16, in_chans=3, num_classes=10):
         super().__init__()
-        self.backbone = Glom(img_size=img_size, patch_size=patch_size, in_chans=in_chans, n_layers=n_layers, 
-                             n_levels=n_levels, feat_dim=feat_dim, use_pos_emb=True)
-        self.clf_head = nn.Linear(self.feat_dim, num_classes)
+        self.backbone = globals()[f'glom_{args.model_size}'](img_size=img_size, patch_size=patch_size, in_chans=in_chans, use_pos_emb=True)
+        self.clf_head = nn.Linear(self.backbone.feat_dim, num_classes)
 
     def forward(self, x):
         """
@@ -246,7 +245,7 @@ class GlomClassification(pl.LightningModule):
         B, C, H, W = x.shape
         x = self.backbone(x) # [B, N + 1, NL, DL]
         N = x.shape[1] - 1
-        x = x.reshape(B, N + 1, self.feat_dim) # [B, N + 1, D]
+        x = x.reshape(B, N + 1, self.backbone.feat_dim) # [B, N + 1, D]
         x = self.clf_head(x[:, 0]) # [B, N_CL]
         return x
 
@@ -265,3 +264,12 @@ class GlomClassification(pl.LightningModule):
 
     def validation_step(self, batch, idx):
         return self.training_step(batch, idx, mode='val')
+
+def glom_tiny(**kwargs):
+    return Glom(n_layers=12, n_levels=3, feat_dim=192, **kwargs)
+
+def glom_small(**kwargs):
+    return Glom(n_layers=12, n_levels=6, feat_dim=384, **kwargs)
+
+def glom_base(**kwargs):
+    return Glom(n_layers=12, n_levels=12, feat_dim=768, **kwargs)
