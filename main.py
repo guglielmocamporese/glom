@@ -14,11 +14,13 @@ def main(args):
     # Model and trainer
     if args.task == 'classification': 
         model = GlomClassification(args, img_size=ds_info['img_size'], patch_size=args.patch_size, 
-                                   num_classes=ds_info['num_classes'])
+                                   num_classes=ds_info['num_classes'], in_chans=ds_info['in_chans'])
     elif args.task == 'reconstruction': 
-        model = GlomReconstruction(args, img_size=ds_info['img_size'], patch_size=args.patch_size)
+        model = GlomReconstruction(args, img_size=ds_info['img_size'], patch_size=args.patch_size, 
+                                   in_chans=ds_info['in_chans'])
     else:
         raise Exception(f'Error. Task "{args.task}" is not supported.')
+    #print(model.summarize())
 
     # Create trainer
     trainer = pl.Trainer(max_epochs=args.epochs, gpus=args.gpus)

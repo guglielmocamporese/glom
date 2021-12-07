@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 __available__ = ['mnist', 'cifar10', 'cifar100', 'imagenet']
 
 NORMALIZATION = {
+    'mnist': [(0.5,), (0.5,)],
     'imagenet': [(0.485, 0.456, 0.406), (0.229, 0.224, 0.225)],
     'cifar10': [(0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)],
     'cifar100': [(0.5071, 0.4866, 0.4409), (0.2673, 0.2564, 0.2761)],
@@ -27,10 +28,10 @@ def get_datasets(args):
     }
     mu, std = NORMALIZATION[args.dataset]
     if args.dataset == 'mnist':
-        ds_train = MNIST(train=True, transforms=T.ToTensor(), **ds_kwargs)
-        ds_val = MNIST(train=False, transforms=T.ToTensor(), **ds_kwargs)
+        ds_train = MNIST(train=True, transform=T.ToTensor(), **ds_kwargs)
+        ds_val = MNIST(train=False, transform=T.ToTensor(), **ds_kwargs)
         ds_info = {
-            'in_channels': 1,
+            'in_chans': 1,
             'img_size': 28,
             'num_classes': 10,
         }
@@ -50,7 +51,7 @@ def get_datasets(args):
         ds_train = CIFAR10(train=True, transform=train_transform, **ds_kwargs)
         ds_val = CIFAR10(train=False, transform=val_transform, **ds_kwargs)
         ds_info = {
-            'in_channels': 3,
+            'in_chans': 3,
             'img_size': 32,
             'num_classes': 10,
         }
@@ -70,7 +71,7 @@ def get_datasets(args):
         ds_train = CIFAR100(train=True, transform=train_transform, **ds_kwargs)
         ds_val = CIFAR100(train=False, transform=val_transform, **ds_kwargs)
         ds_info = {
-            'in_channels': 3,
+            'in_chans': 3,
             'img_size': 32,
             'num_classes': 100,
         }
@@ -89,10 +90,10 @@ def get_datasets(args):
             T.ToTensor(),
             normalize,
         ])
-        ds_train = ImageFolder(args.data_path, transform=train_transform)
-        ds_val = ImageFolder(args.data_path, transform=val_transform)
+        ds_train = ImageFolder(os.path.join(args.data_path, 'imagenet', 'train'), transform=train_transform)
+        ds_val = ImageFolder(os.path.join(args.data_path, 'imagenet', 'val'), transform=val_transform)
         ds_info = {
-            'in_channels': 3,
+            'in_chans': 3,
             'img_size': 224,
             'num_classes': 1000,
         }

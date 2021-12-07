@@ -20,6 +20,8 @@ def parse_args(stdin, verbose=True):
                         choices=['classification', 'reconstruction'])
     parser.add_argument('--model_size', type=str, default='small', help='Model size.', 
                         choices=['tiny', 'small', 'base'])
+    parser.add_argument('--lr', type=float, default=3e-4, help='The learning rate.')
+    parser.add_argument('--wd', type=float, default=1e-3, help='The weight decay.')
     args = parser.parse_args()
 
     if verbose:

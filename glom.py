@@ -110,11 +110,11 @@ class Attention(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
+    def __init__(self, dim, num_heads=1, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
                  drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
-        self.norm1 = norm_layer(dim)
-        self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+        #self.norm1 = norm_layer(dim)
+        #self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
@@ -122,16 +122,17 @@ class Block(nn.Module):
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
     def forward(self, x):
-        x = x + self.drop_path(self.attn(self.norm1(x)))
+        #x = x + self.drop_path(self.attn(self.norm1(x)))
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
 
 class GlomLayer(nn.Module):
-    def __init__(self, n_levels=5, feat_dim=256, num_heads=8, **kwargs):
+    def __init__(self, n_levels, level_dim, **kwargs):
         super().__init__()
-        self.bottom_up_net = Block(feat_dim, num_heads=num_heads, **kwargs)
-        self.top_down_net = Block(feat_dim, num_heads=num_heads, **kwargs)
+        self.bottom_up_net = Block(level_dim, **kwargs)
+        self.top_down_net = Block(level_dim, **kwargs)
         self.current_net = attention
+        self.norm = nn.LayerNorm(level_dim)
 
     def forward(self, x, pos_lev_emb):
         """
@@ -150,7 +151,7 @@ class GlomLayer(nn.Module):
             z_lev_prev = self.bottom_up_net(x_lev_prev) # [B, N, DL]
             z_lev_next = self.top_down_net(x_lev_next) + pos_lev_emb[l].unsqueeze(0).unsqueeze(0).repeat(B, N, 1) # [B, N, DL]
             z_lev_cur = self.current_net(x_lev_cur) + z_lev_prev + z_lev_next # [B, N, DL]
-            z += [z_lev_cur]
+            z += [self.norm(z_lev_cur)]
         z = torch.stack(z, 2) # [B, N, NL, DL]
         return z
 
@@ -158,16 +159,19 @@ class Glom(nn.Module):
     """
     Glom Backbone.
     """
-    def __init__(self, img_size=224, patch_size=16, in_chans=3, n_layers=3, n_levels=5, feat_dim=1280, use_pos_emb=False):
+    def __init__(self, img_size=224, patch_size=16, in_chans=3, n_layers=3, n_levels=5, feat_dim=1280, 
+                 use_pos_emb=False, mlp_ratio=4):
         super().__init__()
         assert feat_dim % n_levels == 0, 'Features dimension must be divisible by number of levels!'
         self.n_levels = n_levels
         self.feat_dim = feat_dim
         self.use_pos_emb = use_pos_emb
-        self.feat_dim_per_level = self.feat_dim // self.n_levels
+        self.level_dim = self.feat_dim // self.n_levels
         self.patch_embed = PatchEmbed(img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=feat_dim)
-        self.pos_lev_emb = nn.Parameter(torch.randn(n_levels, self.feat_dim_per_level))
-        self.layers = nn.ModuleList([GlomLayer(n_levels=n_levels, feat_dim=self.feat_dim_per_level) for _ in range(n_layers)])
+        self.pos_lev_emb = nn.Parameter(torch.randn(n_levels, self.level_dim))
+        self.layers = nn.ModuleList([
+            GlomLayer(n_levels, self.level_dim, mlp_ratio=mlp_ratio) for _ in range(n_layers)
+        ])
         if self.use_pos_emb:
             self.clf_token = nn.Parameter(torch.randn(1, self.feat_dim))
 
@@ -183,16 +187,16 @@ class Glom(nn.Module):
         B, N, D = x.shape
         if self.use_pos_emb:
             x = torch.cat([self.clf_token.unsqueeze(0).repeat(B, 1, 1), x], 1) # [B, N + 1, D]
-        x = x.reshape(B, -1, self.n_levels, self.feat_dim_per_level) # [B, N( + 1), NL, DL]
+        x = x.reshape(B, -1, self.n_levels, self.level_dim) # [B, N( + 1), NL, DL]
         for layer in self.layers:
             x = layer(x, self.pos_lev_emb)
         return x # [B, N( + 1), NL, DL]
 
 
 class GlomReconstruction(pl.LightningModule):
-    def __init__(self, img_size=224, patch_size=16, in_chans=3, n_layers=3, n_levels=5, feat_dim=1280):
+    def __init__(self, args, img_size=224, patch_size=16, in_chans=3, n_layers=3, n_levels=5, feat_dim=1280):
         super().__init__()
-        assert feat_dim % n_levels == 0, 'Features dimension must be divisible by number of levels!'
+        self.args = args
         self.backbone = Glom(img_size=img_size, patch_size=patch_size, in_chans=in_chans, n_layers=n_layers, 
                              n_levels=n_levels, feat_dim=feat_dim, use_pos_emb=False)
         self.rec_head = nn.Linear(self.feat_dim, in_chans * (patch_size ** 2))
@@ -215,7 +219,7 @@ class GlomReconstruction(pl.LightningModule):
         return x
 
     def configure_optimizers(self):
-        return Adam(self.parameters(), lr=3e-4)
+        return Adam(self.parameters(), lr=self.args.lr, weight_decay=self.args.wd)
 
     def training_step(self, batch, idx, mode='train'):
         x, y = batch
@@ -232,6 +236,7 @@ class GlomReconstruction(pl.LightningModule):
 class GlomClassification(pl.LightningModule):
     def __init__(self, args, img_size=224, patch_size=16, in_chans=3, num_classes=10):
         super().__init__()
+        self.args = args
         self.backbone = globals()[f'glom_{args.model_size}'](img_size=img_size, patch_size=patch_size, in_chans=in_chans, use_pos_emb=True)
         self.clf_head = nn.Linear(self.backbone.feat_dim, num_classes)
 
@@ -250,14 +255,14 @@ class GlomClassification(pl.LightningModule):
         return x
 
     def configure_optimizers(self):
-        return Adam(self.parameters(), lr=3e-4)
+        return Adam(self.parameters(), lr=self.args.lr, weight_decay=self.args.wd)
 
     def training_step(self, batch, idx, mode='train'):
         x, y = batch
         logits = self(x)
 
         loss = F.cross_entropy(logits, y)
-        acc = accuracy(logits, y)
+        acc = accuracy(F.softmax(logits, 1), y)
         self.log(f'{mode}_loss', loss, prog_bar=True)
         self.log(f'{mode}_acc', acc, prog_bar=True)
         return loss
@@ -266,10 +271,19 @@ class GlomClassification(pl.LightningModule):
         return self.training_step(batch, idx, mode='val')
 
 def glom_tiny(**kwargs):
-    return Glom(n_layers=12, n_levels=3, feat_dim=192, **kwargs)
+    #feat_dim = 192
+    #n_levels = 3
+    #mlp_ratio = 4
+    return Glom(n_layers=12, n_levels=3, feat_dim=4 * 192, mlp_ratio=4, **kwargs)
 
 def glom_small(**kwargs):
-    return Glom(n_layers=12, n_levels=6, feat_dim=384, **kwargs)
+    #feat_dim = 384
+    #n_levels = 6
+    #mlp_ratio = 4
+    return Glom(n_layers=12, n_levels=6, feat_dim=4 * 384, mlp_ratio=8, **kwargs)
 
 def glom_base(**kwargs):
-    return Glom(n_layers=12, n_levels=12, feat_dim=768, **kwargs)
+    #feat_dim = 768
+    #n_levels = 12
+    #mlp_ratio = 4
+    return Glom(n_layers=12, n_levels=12, feat_dim=4 * 768, mlp_ratio=4, **kwargs)
