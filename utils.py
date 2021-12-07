@@ -1,6 +1,8 @@
 import argparse
 import datasets
 import pprint
+import pytorch_lightning as pl
+import os
 
 
 def parse_args(stdin, verbose=True):
@@ -22,6 +24,9 @@ def parse_args(stdin, verbose=True):
                         choices=['tiny', 'small', 'base'])
     parser.add_argument('--lr', type=float, default=3e-4, help='The learning rate.')
     parser.add_argument('--wd', type=float, default=1e-3, help='The weight decay.')
+    parser.add_argument('--exp_id', type=str, default='', help='The experiment id.')
+    parser.add_argument('--logger', type=str, default='wandb', help='The logger to use.', 
+                        choices=['wandb', 'tensorboard'])
     args = parser.parse_args()
 
     if verbose:
@@ -29,3 +34,30 @@ def parse_args(stdin, verbose=True):
         args_dict = {k: v for k, v in sorted(list(args_dict.items()))}
         pprint.pprint(args_dict)
     return args
+
+def get_logger(args):
+    """
+    Logger for the PyTorchLightning Trainer.
+    """
+    logger_kind = 'tensorboard' if 'logger' not in args.__dict__ else args.logger
+    if logger_kind == 'tensorboard':
+        logger = pl.loggers.tensorboard.TensorBoardLogger(
+            save_dir=os.path.join(os.getcwd(), 'tmp'),
+            name=args.dataset,
+        )
+
+    elif logger_kind == 'wandb':
+        task_str = [args.task]
+        name = [
+            str(args.exp_id), args.dataset, '-'.join(task_str),
+            '-'.join([str(args.model_size), str(args.patch_size)])
+        ]
+        logger = pl.loggers.WandbLogger(
+            save_dir=os.path.join(os.getcwd(), 'tmp'),
+            name='/'.join(name),
+            project='glom',
+        )
+
+    else:
+        raise Exception(f'Error. Logger "{lokker_kind}" is not supported.')
+    return logger

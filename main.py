@@ -20,10 +20,12 @@ def main(args):
                                    in_chans=ds_info['in_chans'])
     else:
         raise Exception(f'Error. Task "{args.task}" is not supported.')
-    #print(model.summarize())
+
+    # Logger
+    logger = utils.get_logger(args)
 
     # Create trainer
-    trainer = pl.Trainer(max_epochs=args.epochs, gpus=args.gpus)
+    trainer = pl.Trainer(max_epochs=args.epochs, gpus=args.gpus, logger=logger)
 
     # Fit
     trainer.fit(model, train_dataloaders=dl_dict['train'], val_dataloaders=dl_dict['val'])
